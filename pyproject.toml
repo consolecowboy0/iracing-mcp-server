@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iracing-mcp-server"
+version = "0.1.0"
+description = "iRacing MCP server that collects telemetry data via pyirsdk for ElevenLabs integration"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.10.0",
+    "pyirsdk>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+iracing-mcp-server = "iracing_mcp_server.server:main"
