@@ -15,6 +15,14 @@ class IRacingDataCollector:
         self.ir = irsdk.IRSDK()
         self._connected = False
 
+    def _get_var(self, name: str) -> Any:
+        """Safely fetch an iRacing variable."""
+        try:
+            return self.ir[name]
+        except KeyError:
+            logger.debug("Telemetry field %s is not available in this session.", name)
+            return None
+
     def connect(self) -> bool:
         """
         Connect to iRacing.
@@ -68,28 +76,30 @@ class IRacingDataCollector:
             return None
 
         try:
-            # Freeze data to ensure consistency
-            if not self.ir.freeze_var_buffer_latest():
-                return None
-
+            self.ir.freeze_var_buffer_latest()
             telemetry = {
-                "speed": self.ir["Speed"],
-                "rpm": self.ir["RPM"],
-                "gear": self.ir["Gear"],
-                "throttle": self.ir["Throttle"],
-                "brake": self.ir["Brake"],
-                "steering_wheel_angle": self.ir["SteeringWheelAngle"],
-                "lap": self.ir["Lap"],
-                "lap_dist_pct": self.ir["LapDistPct"],
-                "fuel_level": self.ir["FuelLevel"],
-                "fuel_level_pct": self.ir["FuelLevelPct"],
-                "engine_warnings": self.ir["EngineWarnings"],
+                "speed": self._get_var("Speed"),
+                "rpm": self._get_var("RPM"),
+                "gear": self._get_var("Gear"),
+                "throttle": self._get_var("Throttle"),
+                "brake": self._get_var("Brake"),
+                "steering_wheel_angle": self._get_var("SteeringWheelAngle"),
+                "lap": self._get_var("Lap"),
+                "lap_dist_pct": self._get_var("LapDistPct"),
+                "fuel_level": self._get_var("FuelLevel"),
+                "fuel_level_pct": self._get_var("FuelLevelPct"),
+                "engine_warnings": self._get_var("EngineWarnings"),
             }
 
             return telemetry
         except Exception as e:
             logger.error(f"Error getting telemetry: {e}")
             return None
+        finally:
+            try:
+                self.ir.unfreeze_var_buffer_latest()
+            except Exception:
+                pass
 
     def get_session_info(self) -> Optional[Dict[str, Any]]:
         """
@@ -102,21 +112,31 @@ class IRacingDataCollector:
             return None
 
         try:
-            session_info = self.ir["SessionInfo"]
-            
-            if not session_info:
-                return None
+            session_info = self.ir["SessionInfo"] or {}
+            weekend_info = self.ir["WeekendInfo"] or session_info.get("WeekendInfo", {})
+            session_details = session_info.get("Sessions", [])
+            session_num = self._get_var("SessionNum") or 0
 
-            # Extract key session data
+            session_type = "Unknown"
+            if isinstance(session_num, int) and 0 <= session_num < len(session_details):
+                session_type = session_details[session_num].get("SessionType", "Unknown")
+
+            track_name = (
+                weekend_info.get("TrackDisplayName")
+                or weekend_info.get("TrackDisplayShortName")
+                or weekend_info.get("TrackName")
+                or "Unknown"
+            )
+
             info = {
-                "track_name": self.ir["WeekendInfo"]["TrackDisplayName"] if "WeekendInfo" in session_info else "Unknown",
-                "track_config": self.ir["WeekendInfo"]["TrackConfigName"] if "WeekendInfo" in session_info else "",
-                "session_type": self.ir["SessionInfo"]["Sessions"][self.ir["SessionNum"]]["SessionType"] if "SessionInfo" in session_info else "Unknown",
-                "session_time": self.ir["SessionTime"],
-                "session_time_remain": self.ir["SessionTimeRemain"],
-                "air_temp": self.ir["AirTemp"],
-                "track_temp": self.ir["TrackTemp"],
-                "sky_condition": self.ir["Skies"],
+                "track_name": track_name,
+                "track_config": weekend_info.get("TrackConfigName", ""),
+                "session_type": session_type,
+                "session_time": self._get_var("SessionTime"),
+                "session_time_remain": self._get_var("SessionTimeRemain"),
+                "air_temp": self._get_var("AirTemp"),
+                "track_temp": self._get_var("TrackTemp"),
+                "sky_condition": self._get_var("Skies"),
             }
 
             return info
@@ -135,18 +155,24 @@ class IRacingDataCollector:
             return None
 
         try:
+            self.ir.freeze_var_buffer_latest()
             car_info = {
-                "car_id": self.ir["CarIdxClassPosition"],
-                "player_car_idx": self.ir["PlayerCarIdx"],
-                "car_class_short_name": self.ir["PlayerCarClassShortName"],
-                "is_on_track": self.ir["IsOnTrack"],
-                "is_in_garage": self.ir["IsInGarage"],
+                "car_id": self._get_var("CarIdxClassPosition"),
+                "player_car_idx": self._get_var("PlayerCarIdx"),
+                "car_class_short_name": self._get_var("PlayerCarClassShortName"),
+                "is_on_track": self._get_var("IsOnTrack"),
+                "is_in_garage": self._get_var("IsInGarage"),
             }
 
             return car_info
         except Exception as e:
             logger.error(f"Error getting car info: {e}")
             return None
+        finally:
+            try:
+                self.ir.unfreeze_var_buffer_latest()
+            except Exception:
+                pass
 
     def get_position_info(self) -> Optional[Dict[str, Any]]:
         """
@@ -159,16 +185,26 @@ class IRacingDataCollector:
             return None
 
         try:
+            self.ir.freeze_var_buffer_latest()
+            player_idx = self._get_var("PlayerCarIdx")
+            car_idx_position = self._get_var("CarIdxPosition") or []
+            car_idx_class_position = self._get_var("CarIdxClassPosition") or []
+
             position_info = {
-                "position": self.ir["CarIdxPosition"][self.ir["PlayerCarIdx"]] if self.ir["PlayerCarIdx"] is not None else 0,
-                "class_position": self.ir["CarIdxClassPosition"][self.ir["PlayerCarIdx"]] if self.ir["PlayerCarIdx"] is not None else 0,
-                "lap_completed": self.ir["LapCompleted"],
-                "laps_completed": self.ir["LapsComplete"],
-                "lap_best_time": self.ir["LapBestLapTime"],
-                "lap_last_time": self.ir["LapLastLapTime"],
+                "position": car_idx_position[player_idx] if isinstance(car_idx_position, list) and isinstance(player_idx, int) and player_idx < len(car_idx_position) else 0,
+                "class_position": car_idx_class_position[player_idx] if isinstance(car_idx_class_position, list) and isinstance(player_idx, int) and player_idx < len(car_idx_class_position) else 0,
+                "lap_completed": self._get_var("LapCompleted"),
+                "laps_completed": self._get_var("LapsComplete"),
+                "lap_best_time": self._get_var("LapBestLapTime"),
+                "lap_last_time": self._get_var("LapLastLapTime"),
             }
 
             return position_info
         except Exception as e:
             logger.error(f"Error getting position info: {e}")
             return None
+        finally:
+            try:
+                self.ir.unfreeze_var_buffer_latest()
+            except Exception:
+                pass

@@ -11,6 +11,8 @@ requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.10.0",
     "pyirsdk>=1.0.0",
+    "elevenlabs>=2.23.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -21,3 +23,4 @@ dev = [
 
 [project.scripts]
 iracing-mcp-server = "iracing_mcp_server.server:main"
+iracing-elevenlabs-client = "iracing_mcp_server.elevenlabs_client:main"

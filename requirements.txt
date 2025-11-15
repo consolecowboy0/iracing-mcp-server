@@ -1,2 +1,4 @@
 mcp>=1.10.0
 pyirsdk>=1.0.0
+elevenlabs>=2.23.0
+python-dotenv>=1.0.0

@@ -43,31 +43,85 @@ pip install iracing-mcp-server
 
 ### Running the Server
 
-Start the MCP server:
+#### Default (stdio) transport
+
+Runs over stdio which is ideal when the MCP client spawns the process locally:
 
 ```bash
 iracing-mcp-server
-```
-
-Or run directly with Python:
-
-```bash
+# or
 python -m iracing_mcp_server.server
 ```
 
+#### Server-Sent Events transport
+
+Expose the server over HTTP so tools like the ElevenLabs web UI can connect via SSE:
+
+```bash
+# GET /sse streams responses, POST /messages/ receives client JSON-RPC payloads
+iracing-mcp-server --transport sse --host 0.0.0.0 --port 8000 --sse-path /sse --messages-path /messages
+```
+
+A simple health probe is available at `GET /health`.
+
+#### Streamable HTTP transport
+
+Alternatively, use the Streamable HTTP transport (GET/POST/DELETE on a single endpoint):
+
+```bash
+iracing-mcp-server --transport http --host 0.0.0.0 --port 8000 --http-path /mcp
+```
+
+Flags:
+
+- `--http-json-response` – respond with JSON payloads instead of SSE events.
+- `--http-stateless` – create a fresh MCP session per request if your client cannot hold sessions.
+
+The server exposes `GET /health` plus whatever path you configure via `--http-path`.
+
 ### Integration with ElevenLabs
 
-The server follows the MCP standard and can be configured in your MCP client configuration. For ElevenLabs integration, add the server to your MCP settings:
+You have two options depending on your environment:
 
-```json
-{
-  "mcpServers": {
-    "iracing": {
-      "command": "iracing-mcp-server"
+1. **Local MCP config (stdio)** - Point ElevenLabs to the local command, as before:
+
+    ```json
+    {
+      "mcpServers": {
+        "iracing": {
+          "command": "iracing-mcp-server"
+        }
+      }
     }
-  }
-}
+    ```
+
+2. **Web UI over HTTP/SSE** - Run one of the network transports and enter the URL in the ElevenLabs interface:
+
+   - **SSE**:  
+     - SSE stream: `http://<host>:<port><sse_path>` (default `/sse`)  
+     - Message POST endpoint: `http://<host>:<port><messages_path>` (default `/messages/`)
+   - **Streamable HTTP**: `http://<host>:<port><http_path>` (default `/mcp`)
+
+   Use `GET /health` to verify connectivity before pointing ElevenLabs at the server.
+
+### Headless ElevenLabs Client (SDK)
+
+If the ElevenLabs UI cannot launch local stdio commands, use the bundled SDK client:
+
+```bash
+# .env should define ELEVENLABS_API_KEY and ELEVENLABS_AGENT_ID
+python -m iracing_mcp_server.elevenlabs_client
 ```
+
+Highlights:
+
+- Automatically loads `.env` (via `python-dotenv`) and falls back to `ELEVENLABS_API_KEY` / `ELEVENLABS_AGENT_ID` environment variables, so you rarely need CLI flags
+- Launches the MCP server over stdio (customize with `--command`, `--server-arg`, `--server-env`, `--server-cwd`)
+- Registers every MCP tool as an ElevenLabs client tool on the fly so the agent can call them
+- Runs a lightweight REPL (type `/quit` to exit). Add `--text-only` or `--audio` only if your agent explicitly allows overriding conversation mode
+- Works with private agents that require signed URLs via `--requires-auth`
+
+You can still override any value explicitly, e.g. `--agent-id`, `--api-key`, or transport flags. The same entry point is available as `iracing-elevenlabs-client` when installed via `pip`.
 
 ### Available Tools
 
