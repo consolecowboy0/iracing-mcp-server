@@ -8,6 +8,7 @@ An MCP (Model Context Protocol) server for collecting iRacing telemetry data via
 - **Session Information**: Access track name, session type, weather conditions, and time remaining
 - **Car Information**: Get car ID, class, and track status
 - **Position & Standings**: Track position, class position, lap times, and laps completed
+- **Situational Awareness**: List nearby cars ahead/behind with relative gaps and speeds
 - **MCP Standard Compliant**: Compatible with ElevenLabs and other MCP clients
 - **SSE/HTTPS Support**: Works with both Server-Sent Events and HTTPS streaming
 
@@ -134,7 +135,8 @@ The server provides the following tools:
 5. **get_session_info** - Get session information (track, weather, etc.)
 6. **get_car_info** - Get car information
 7. **get_position_info** - Get position and lap time data
-8. **get_all_data** - Get all available data in one call
+8. **get_surroundings** - Show nearby cars ahead/behind with relative gaps
+9. **get_all_data** - Get all available data in one call
 
 ### Example Usage
 

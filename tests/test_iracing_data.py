@@ -53,3 +53,10 @@ def test_get_position_info_when_not_connected():
     collector = IRacingDataCollector()
     position_info = collector.get_position_info()
     assert position_info is None
+
+
+def test_get_surroundings_when_not_connected():
+    """Test getting surroundings when not connected."""
+    collector = IRacingDataCollector()
+    surroundings = collector.get_surroundings()
+    assert surroundings is None

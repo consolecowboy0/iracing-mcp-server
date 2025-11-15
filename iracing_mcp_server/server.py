@@ -103,6 +103,21 @@ def create_mcp_server() -> MCPServer:
                 },
             ),
             Tool(
+                name="get_surroundings",
+                description="Show nearby cars ahead and behind the player along with relative gaps.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10,
+                            "description": "Number of cars to show ahead/behind (default 3).",
+                        }
+                    },
+                },
+            ),
+            Tool(
                 name="get_all_data",
                 description="Get all available data from iRacing in a single call (telemetry, session, car, and position info).",
                 inputSchema={
@@ -245,6 +260,67 @@ def create_mcp_server() -> MCPServer:
                     )
                 ]
 
+            elif name == "get_surroundings":
+                if not ensure_connection():
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Unable to connect to iRacing. Please make sure the sim is running and you are in a session.",
+                        )
+                    ]
+                count_value = None
+                if arguments and isinstance(arguments, dict):
+                    raw_count = arguments.get("count")
+                    if raw_count is not None:
+                        try:
+                            count_value = int(raw_count)
+                        except (TypeError, ValueError):
+                            pass
+                surroundings = data_collector.get_surroundings(count=count_value or 3)
+                if surroundings is None:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Failed to get surroundings info. Make sure you are connected to iRacing.",
+                        )
+                    ]
+
+                def format_car(car: dict[str, Any]) -> str:
+                    name = car.get("name", "Unknown")
+                    number = car.get("car_number")
+                    pos = car.get("position")
+                    gap_pct = car.get("relative_lap_dist_pct")
+                    gap = f"{gap_pct:+.3f}%" if gap_pct is not None else "n/a"
+                    gap_m = car.get("gap_meters")
+                    if gap_m is not None:
+                        gap += f" ({gap_m:+.1f} m)"
+                    return f"- {name} (#{number or 'n/a'}, pos {pos or 'n/a'}) gap {gap}"
+
+                lines = [
+                    f"Player: {surroundings['player'].get('name', 'Unknown')} "
+                    f"(#{surroundings['player'].get('car_number', 'n/a')}, pos {surroundings['player'].get('position', 'n/a')})",
+                    "Cars ahead:",
+                ]
+                ahead = surroundings.get("cars_ahead") or []
+                if ahead:
+                    lines.extend(format_car(car) for car in ahead)
+                else:
+                    lines.append("- None within range")
+
+                lines.append("Cars behind:")
+                behind = surroundings.get("cars_behind") or []
+                if behind:
+                    lines.extend(format_car(car) for car in behind)
+                else:
+                    lines.append("- None within range")
+
+                return [
+                    TextContent(
+                        type="text",
+                        text="\n".join(lines),
+                    )
+                ]
+
             elif name == "get_all_data":
                 if not ensure_connection():
                     return [
@@ -259,6 +335,7 @@ def create_mcp_server() -> MCPServer:
                     "session": data_collector.get_session_info(),
                     "car": data_collector.get_car_info(),
                     "position": data_collector.get_position_info(),
+                    "surroundings": data_collector.get_surroundings(),
                 }
                 
                 sections = []

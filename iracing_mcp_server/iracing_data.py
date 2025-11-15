@@ -208,3 +208,140 @@ class IRacingDataCollector:
                 self.ir.unfreeze_var_buffer_latest()
             except Exception:
                 pass
+
+    def _get_driver_metadata(self, car_idx: int, field: str) -> Any:
+        """Return metadata for the given driver index (if available)."""
+        try:
+            driver_info = self.ir["DriverInfo"] or {}
+            drivers = driver_info.get("Drivers", [])
+            if isinstance(car_idx, int) and 0 <= car_idx < len(drivers):
+                return drivers[car_idx].get(field)
+        except Exception:
+            logger.debug("Driver metadata %s unavailable for car_idx %s", field, car_idx)
+        return None
+
+    def _get_track_length_meters(self) -> Optional[float]:
+        """Return track length in meters if available."""
+        weekend_info = None
+        try:
+            weekend_info = self.ir["WeekendInfo"]
+        except Exception:
+            pass
+        if not weekend_info:
+            try:
+                weekend_info = (self.ir["SessionInfo"] or {}).get("WeekendInfo", {})
+            except Exception:
+                weekend_info = {}
+        length_str = (weekend_info or {}).get("TrackLength")
+        if not length_str:
+            return None
+        parts = length_str.replace(",", "").split()
+        if not parts:
+            return None
+        try:
+            value = float(parts[0])
+        except ValueError:
+            return None
+        unit = parts[1].lower() if len(parts) > 1 else "m"
+        if unit.startswith("km"):
+            return value * 1000.0
+        if unit.startswith("mi"):
+            return value * 1609.34
+        if unit.startswith("m"):
+            return value
+        if unit.startswith("ft"):
+            return value * 0.3048
+        return None
+
+    def get_surroundings(self, count: int = 3) -> Optional[Dict[str, Any]]:
+        """
+        Return nearby cars ahead/behind the player.
+
+        Args:
+            count: Number of cars to include ahead/behind (default 3, max 10).
+        """
+        if not self.is_connected():
+            return None
+
+        count = max(1, min(10, count or 3))
+
+        try:
+            self.ir.freeze_var_buffer_latest()
+            player_idx = self._get_var("PlayerCarIdx")
+            player_dist = self._get_var("LapDistPct")
+            if player_idx is None or player_dist is None:
+                return None
+
+            car_dists = self._get_var("CarIdxLapDistPct") or []
+            car_speeds = self._get_var("CarIdxSpeed") or []
+            car_positions = self._get_var("CarIdxPosition") or []
+            car_class_positions = self._get_var("CarIdxClassPosition") or []
+            car_surfaces = self._get_var("CarIdxTrackSurface") or []
+
+            track_length_m = self._get_track_length_meters()
+            player_driver = {
+                "name": self._get_driver_metadata(player_idx, "UserName") or self._get_driver_metadata(player_idx, "CarNumber") or f"Car {player_idx}",
+                "car_number": self._get_driver_metadata(player_idx, "CarNumber") or str(player_idx),
+                "team": self._get_driver_metadata(player_idx, "TeamName"),
+            }
+
+            entries: list[Dict[str, Any]] = []
+            for idx, dist in enumerate(car_dists):
+                if idx == player_idx:
+                    continue
+                if dist is None or dist < 0 or not isinstance(dist, (int, float)):
+                    continue
+                relative = float(dist) - float(player_dist)
+                if relative > 0.5:
+                    relative -= 1.0
+                elif relative < -0.5:
+                    relative += 1.0
+                if relative == 0:
+                    continue
+                relative_pct = relative * 100.0
+                gap_meters = track_length_m * relative if track_length_m is not None else None
+
+                entry = {
+                    "car_idx": idx,
+                    "name": self._get_driver_metadata(idx, "UserName") or self._get_driver_metadata(idx, "CarNumber") or f"Car {idx}",
+                    "car_number": self._get_driver_metadata(idx, "CarNumber") or str(idx),
+                    "position": car_positions[idx] if isinstance(car_positions, (list, tuple)) and 0 <= idx < len(car_positions) else None,
+                    "class_position": car_class_positions[idx] if isinstance(car_class_positions, (list, tuple)) and 0 <= idx < len(car_class_positions) else None,
+                    "speed": car_speeds[idx] if isinstance(car_speeds, (list, tuple)) and 0 <= idx < len(car_speeds) else None,
+                    "track_surface": car_surfaces[idx] if isinstance(car_surfaces, (list, tuple)) and 0 <= idx < len(car_surfaces) else None,
+                    "relative_lap_dist_pct": round(relative_pct, 4),
+                    "gap_meters": round(gap_meters, 2) if gap_meters is not None else None,
+                }
+                entries.append(entry)
+
+            ahead = sorted(
+                [car for car in entries if car["relative_lap_dist_pct"] > 0],
+                key=lambda car: car["relative_lap_dist_pct"],
+            )[:count]
+            behind = sorted(
+                [car for car in entries if car["relative_lap_dist_pct"] < 0],
+                key=lambda car: abs(car["relative_lap_dist_pct"]),
+            )[:count]
+
+            player_summary = {
+                "car_idx": player_idx,
+                "name": player_driver["name"],
+                "car_number": player_driver["car_number"],
+                "position": car_positions[player_idx] if isinstance(car_positions, (list, tuple)) and isinstance(player_idx, int) and 0 <= player_idx < len(car_positions) else None,
+                "class_position": car_class_positions[player_idx] if isinstance(car_class_positions, (list, tuple)) and isinstance(player_idx, int) and 0 <= player_idx < len(car_class_positions) else None,
+            }
+
+            return {
+                "player": player_summary,
+                "cars_ahead": ahead,
+                "cars_behind": behind,
+                "track_length_m": track_length_m,
+            }
+        except Exception as e:
+            logger.error(f"Error getting surroundings info: {e}")
+            return None
+        finally:
+            try:
+                self.ir.unfreeze_var_buffer_latest()
+            except Exception:
+                pass
