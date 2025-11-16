@@ -87,6 +87,17 @@ def create_mcp_server() -> MCPServer:
                 },
             ),
             Tool(
+                name="get_environmental_conditions",
+                description=(
+                    "Get extended environmental data such as track length, surface state, weather type, humidity, wind, "
+                    "and temperature readings."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
                 name="get_car_info",
                 description="Get car information including car ID, class, and track status.",
                 inputSchema={
@@ -115,6 +126,41 @@ def create_mcp_server() -> MCPServer:
                             "description": "Number of cars to show ahead/behind (default 3).",
                         }
                     },
+                },
+            ),
+            Tool(
+                name="get_pit_service_status",
+                description=(
+                    "Get pit stop readiness including pit road status, repair timers, service flags, fuel and tire service "
+                    "requests, and fast repair availability."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
+                name="get_tire_and_brake_status",
+                description="Get tire pressures, temperatures, wear, and brake temperatures for each corner of the player car.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
+                name="get_lap_time_details",
+                description="Get lap timing metrics such as current/best lap, sector splits, and deltas to best/optimal laps.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
+                name="get_driver_roster",
+                description="List every driver in the session with name, car number, team, license, and iRating (if available).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
                 },
             ),
             Tool(
@@ -207,6 +253,31 @@ def create_mcp_server() -> MCPServer:
                     TextContent(
                         type="text",
                         text=f"Session Info:\n{formatted}",
+                    )
+                ]
+
+            elif name == "get_environmental_conditions":
+                if not ensure_connection():
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Unable to connect to iRacing. Please make sure the sim is running and you are in a session.",
+                        )
+                    ]
+                env = data_collector.get_environmental_conditions()
+                if env is None:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Failed to get environmental conditions. Make sure you are connected to iRacing.",
+                        )
+                    ]
+
+                formatted = "\n".join([f"{key}: {value}" for key, value in env.items()])
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Environmental Conditions:\n{formatted}",
                     )
                 ]
 
@@ -321,6 +392,133 @@ def create_mcp_server() -> MCPServer:
                     )
                 ]
 
+            elif name == "get_pit_service_status":
+                if not ensure_connection():
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Unable to connect to iRacing. Please make sure the sim is running and you are in a session.",
+                        )
+                    ]
+                pit_status = data_collector.get_pit_service_status()
+                if pit_status is None:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Failed to get pit/service status. Make sure you are connected to iRacing.",
+                        )
+                    ]
+
+                formatted = "\n".join([f"{key}: {value}" for key, value in pit_status.items()])
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Pit & Service Status:\n{formatted}",
+                    )
+                ]
+
+            elif name == "get_tire_and_brake_status":
+                if not ensure_connection():
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Unable to connect to iRacing. Please make sure the sim is running and you are in a session.",
+                        )
+                    ]
+                tire_status = data_collector.get_tire_and_brake_status()
+                if tire_status is None:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Failed to get tire/brake status. Make sure you are connected to iRacing.",
+                        )
+                    ]
+
+                lines = []
+                for corner in ("left_front", "right_front", "left_rear", "right_rear"):
+                    data = tire_status.get(corner) or {}
+                    entries = ", ".join(f"{k}={v}" for k, v in data.items())
+                    lines.append(f"{corner.replace('_', ' ').title()}: {entries}")
+                lines.append(
+                    "Brake Temps (C?): "
+                    + ", ".join(
+                        [
+                            f"LF={tire_status.get('brake_temp_left_front')}",
+                            f"RF={tire_status.get('brake_temp_right_front')}",
+                            f"LR={tire_status.get('brake_temp_left_rear')}",
+                            f"RR={tire_status.get('brake_temp_right_rear')}",
+                        ]
+                    )
+                )
+                return [
+                    TextContent(
+                        type="text",
+                        text="\n".join(lines),
+                    )
+                ]
+
+            elif name == "get_lap_time_details":
+                if not ensure_connection():
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Unable to connect to iRacing. Please make sure the sim is running and you are in a session.",
+                        )
+                    ]
+                lap_details = data_collector.get_lap_time_details()
+                if lap_details is None:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Failed to get lap time details. Make sure you are connected to iRacing.",
+                        )
+                    ]
+
+                formatted = "\n".join([f"{key}: {value}" for key, value in lap_details.items()])
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Lap Timing Details:\n{formatted}",
+                    )
+                ]
+
+            elif name == "get_driver_roster":
+                if not ensure_connection():
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Unable to connect to iRacing. Please make sure the sim is running and you are in a session.",
+                        )
+                    ]
+                roster = data_collector.get_driver_roster()
+                if roster is None:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Failed to get driver roster. Make sure you are connected to iRacing.",
+                        )
+                    ]
+
+                lines = [
+                    f"Driver count: {roster.get('driver_count')}",
+                    f"Player car idx: {roster.get('player_car_idx')}",
+                    "Drivers:",
+                ]
+                for driver in roster.get("drivers", []):
+                    lines.append(
+                        "- "
+                        + f"#{driver.get('car_number')} {driver.get('user_name')} (idx {driver.get('car_idx')}, "
+                        + f"team {driver.get('team_name')}, class {driver.get('car_class')}, license {driver.get('license')}, "
+                        + f"iRating {driver.get('irating')}, spectator={driver.get('is_spectator')}"
+                    )
+
+                return [
+                    TextContent(
+                        type="text",
+                        text="\n".join(lines),
+                    )
+                ]
+
             elif name == "get_all_data":
                 if not ensure_connection():
                     return [
@@ -333,9 +531,14 @@ def create_mcp_server() -> MCPServer:
                 all_data = {
                     "telemetry": data_collector.get_telemetry(),
                     "session": data_collector.get_session_info(),
+                    "environment": data_collector.get_environmental_conditions(),
                     "car": data_collector.get_car_info(),
                     "position": data_collector.get_position_info(),
                     "surroundings": data_collector.get_surroundings(),
+                    "pit_service": data_collector.get_pit_service_status(),
+                    "tires_brakes": data_collector.get_tire_and_brake_status(),
+                    "lap_times": data_collector.get_lap_time_details(),
+                    "drivers": data_collector.get_driver_roster(),
                 }
                 
                 sections = []
@@ -549,6 +752,11 @@ def main():
         logger.info("Server stopped by user")
     finally:
         data_collector.disconnect()
+
+
+def serve() -> None:
+    """Alias for ``main`` to keep backward compatibility with earlier entry points."""
+    main()
 
 
 if __name__ == "__main__":

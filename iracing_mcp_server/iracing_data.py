@@ -144,6 +144,46 @@ class IRacingDataCollector:
             logger.error(f"Error getting session info: {e}")
             return None
 
+    def get_environmental_conditions(self) -> Optional[Dict[str, Any]]:
+        """Return a detailed snapshot of weather and track state."""
+        if not self.is_connected():
+            return None
+
+        try:
+            weekend_info = None
+            try:
+                weekend_info = self.ir["WeekendInfo"]
+            except Exception:
+                pass
+            if not weekend_info:
+                session_info = self.ir["SessionInfo"] or {}
+                weekend_info = session_info.get("WeekendInfo", {})
+
+            track_state = self.ir["SessionInfo"] or {}
+            track_surface = track_state.get("WeekendInfo", {}).get("TrackSurface")
+
+            conditions = {
+                "track_name": (weekend_info or {}).get("TrackDisplayName") or (weekend_info or {}).get("TrackName"),
+                "track_config": (weekend_info or {}).get("TrackConfigName"),
+                "track_length": (weekend_info or {}).get("TrackLength"),
+                "track_surface": track_surface,
+                "track_temp": self._get_var("TrackTemp"),
+                "track_temp_crew": self._get_var("TrackTempCrew"),
+                "track_wetness": self._get_var("TrackWetness"),
+                "air_temp": self._get_var("AirTemp"),
+                "skies": self._get_var("Skies"),
+                "weather_type": self._get_var("WeatherType"),
+                "relative_humidity": self._get_var("RelativeHumidity"),
+                "wind_speed": self._get_var("WindVel"),
+                "wind_direction": self._get_var("WindDir"),
+                "wind_speed_max": self._get_var("WindVelMax"),
+                "fog_level": self._get_var("FogLevel"),
+            }
+            return conditions
+        except Exception as e:
+            logger.error(f"Error getting environmental conditions: {e}")
+            return None
+
     def get_car_info(self) -> Optional[Dict[str, Any]]:
         """
         Get car information from iRacing.
@@ -202,6 +242,144 @@ class IRacingDataCollector:
             return position_info
         except Exception as e:
             logger.error(f"Error getting position info: {e}")
+            return None
+        finally:
+            try:
+                self.ir.unfreeze_var_buffer_latest()
+            except Exception:
+                pass
+
+    def get_pit_service_status(self) -> Optional[Dict[str, Any]]:
+        """Return pit road, service, and repair information for the player car."""
+        if not self.is_connected():
+            return None
+
+        try:
+            self.ir.freeze_var_buffer_latest()
+            status = {
+                "on_pit_road": self._get_var("OnPitRoad"),
+                "pitstop_active": self._get_var("PitstopActive"),
+                "pit_service_flags": self._get_var("PitSvFlags"),
+                "pit_service_status": self._get_var("PitSvStatus"),
+                "pit_service_fuel": self._get_var("PitSvFuel"),
+                "pit_service_left_front_pressure": self._get_var("PitSvLFP"),
+                "pit_service_right_front_pressure": self._get_var("PitSvRFP"),
+                "pit_service_left_rear_pressure": self._get_var("PitSvLRP"),
+                "pit_service_right_rear_pressure": self._get_var("PitSvRRP"),
+                "pit_service_tire_compound": self._get_var("PitSvTireCompound"),
+                "pit_repair_time_left": self._get_var("PitRepairLeft"),
+                "pit_optional_repair_left": self._get_var("PitOptRepairLeft"),
+                "fast_repairs_used": self._get_var("FastRepairUsed"),
+                "fast_repairs_available": self._get_var("FastRepairAvailable"),
+            }
+            return status
+        except Exception as e:
+            logger.error(f"Error getting pit/service status: {e}")
+            return None
+        finally:
+            try:
+                self.ir.unfreeze_var_buffer_latest()
+            except Exception:
+                pass
+
+    def _build_tire_snapshot(self, prefix: str) -> Dict[str, Any]:
+        """Helper to collect tire pressure/temp/wear values for a given corner."""
+        return {
+            "pressure": self._get_var(f"{prefix}pressure"),
+            "cold_pressure": self._get_var(f"{prefix}coldPressure"),
+            "temp_inner": self._get_var(f"{prefix}tempCL"),
+            "temp_middle": self._get_var(f"{prefix}tempCM"),
+            "temp_outer": self._get_var(f"{prefix}tempCR"),
+            "wear_inner": self._get_var(f"{prefix}wearL"),
+            "wear_middle": self._get_var(f"{prefix}wearM"),
+            "wear_outer": self._get_var(f"{prefix}wearR"),
+        }
+
+    def get_tire_and_brake_status(self) -> Optional[Dict[str, Any]]:
+        """Return tire temps/wear and brake temperatures for each corner."""
+        if not self.is_connected():
+            return None
+
+        try:
+            self.ir.freeze_var_buffer_latest()
+            status = {
+                "left_front": self._build_tire_snapshot("LF"),
+                "right_front": self._build_tire_snapshot("RF"),
+                "left_rear": self._build_tire_snapshot("LR"),
+                "right_rear": self._build_tire_snapshot("RR"),
+                "brake_temp_left_front": self._get_var("BrakeTempFL"),
+                "brake_temp_right_front": self._get_var("BrakeTempFR"),
+                "brake_temp_left_rear": self._get_var("BrakeTempLR"),
+                "brake_temp_right_rear": self._get_var("BrakeTempRR"),
+            }
+            return status
+        except Exception as e:
+            logger.error(f"Error getting tire/brake status: {e}")
+            return None
+        finally:
+            try:
+                self.ir.unfreeze_var_buffer_latest()
+            except Exception:
+                pass
+
+    def get_driver_roster(self) -> Optional[Dict[str, Any]]:
+        """Return the list of drivers, teams, and car metadata in the session."""
+        if not self.is_connected():
+            return None
+
+        try:
+            driver_info = self.ir["DriverInfo"] or {}
+            drivers = driver_info.get("Drivers", [])
+            roster = []
+            for driver in drivers:
+                roster.append(
+                    {
+                        "car_idx": driver.get("CarIdx"),
+                        "user_name": driver.get("UserName"),
+                        "team_name": driver.get("TeamName"),
+                        "car_number": driver.get("CarNumber"),
+                        "car_class": driver.get("CarClassShortName") or driver.get("CarPath"),
+                        "irating": driver.get("IRating"),
+                        "license": driver.get("LicString"),
+                        "is_spectator": driver.get("IsSpectator"),
+                    }
+                )
+
+            return {
+                "driver_count": len(roster),
+                "player_car_idx": driver_info.get("DriverCarIdx"),
+                "drivers": roster,
+            }
+        except Exception as e:
+            logger.error(f"Error getting driver roster: {e}")
+            return None
+
+    def get_lap_time_details(self) -> Optional[Dict[str, Any]]:
+        """Return lap timing metrics including deltas to best/optimal/session."""
+        if not self.is_connected():
+            return None
+
+        try:
+            self.ir.freeze_var_buffer_latest()
+            details = {
+                "current_lap_time": self._get_var("LapCurrentLapTime"),
+                "last_lap_time": self._get_var("LapLastLapTime"),
+                "best_lap_time": self._get_var("LapBestLapTime"),
+                "best_lap_number": self._get_var("LapBestLap"),
+                "best_n_lap_time": self._get_var("LapBestNLapTime"),
+                "best_n_lap_number": self._get_var("LapBestNLapLap"),
+                "delta_to_best_lap": self._get_var("LapDeltaToBestLap"),
+                "delta_to_best_lap_time": self._get_var("LapDeltaToBestLapTime"),
+                "delta_to_optimal_lap": self._get_var("LapDeltaToOptimalLap"),
+                "delta_to_session_best_lap": self._get_var("LapDeltaToSessionBestLap"),
+                "delta_best_session_time": self._get_var("LapDeltaToSessionBestLapTime"),
+                "lap_sector1_time": self._get_var("Sector1Time"),
+                "lap_sector2_time": self._get_var("Sector2Time"),
+                "lap_sector3_time": self._get_var("Sector3Time"),
+            }
+            return details
+        except Exception as e:
+            logger.error(f"Error getting lap time details: {e}")
             return None
         finally:
             try:
