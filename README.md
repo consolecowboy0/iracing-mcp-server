@@ -2,6 +2,43 @@
 
 An MCP (Model Context Protocol) server for collecting iRacing telemetry data via pyirsdk. This server follows the MCP standard and can be integrated with ElevenLabs using either SSE (Server-Sent Events) or HTTPS streaming.
 
+## Quick Start
+
+Spin up the server in one terminal and tunnel it in another so the ElevenLabs remote client can reach the streamable HTTP endpoint.
+
+1. **Start the MCP server (Command Prompt or PowerShell #1)**
+
+   ```powershell
+   cd C:\Users\dusti\OneDrive\Desktop\iracing-mcp-server
+   # Optional if you haven't created a venv yet:
+   # py -3.11 -m venv .venv
+   .\.venv\Scripts\activate
+   python -m iracing_mcp_server.server --transport http --host 0.0.0.0 --port 8000 --http-path /mcp --http-json-response
+   ```
+
+   Leave this window open; it now serves `http://localhost:8000/mcp` plus `GET /health`.
+
+2. **Expose it over HTTPS (Command Prompt or PowerShell #2)**
+
+   ```powershell
+   cd C:\Users\dusti\OneDrive\Desktop\iracing-mcp-server
+   cloudflared.exe tunnel --url http://localhost:8000 --no-autoupdate
+   ```
+
+   Cloudflare prints a public `https://<random>.trycloudflare.com` URL. Test it with:
+
+   ```powershell
+   curl https://<random>.trycloudflare.com/health
+   ```
+
+3. **Configure ElevenLabs Web UI**
+
+   - Transport: Streamable HTTP
+   - Endpoint: `https://<random>.trycloudflare.com/mcp`
+   - Health check: `https://<random>.trycloudflare.com/health`
+
+   Once ElevenLabs confirms the health probe, it can call every MCP tool over HTTPS.
+
 ## Features
 
 - **Real-time Telemetry**: Collect live telemetry data including speed, RPM, gear, throttle, brake, steering, and fuel levels
