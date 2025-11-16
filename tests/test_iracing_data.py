@@ -41,6 +41,13 @@ def test_get_session_info_when_not_connected():
     assert session_info is None
 
 
+def test_get_environmental_conditions_when_not_connected():
+    """Test getting environmental conditions when not connected."""
+    collector = IRacingDataCollector()
+    env = collector.get_environmental_conditions()
+    assert env is None
+
+
 def test_get_car_info_when_not_connected():
     """Test getting car info when not connected."""
     collector = IRacingDataCollector()
@@ -60,3 +67,31 @@ def test_get_surroundings_when_not_connected():
     collector = IRacingDataCollector()
     surroundings = collector.get_surroundings()
     assert surroundings is None
+
+
+def test_get_pit_service_status_when_not_connected():
+    """Test getting pit/service status when not connected."""
+    collector = IRacingDataCollector()
+    pit_status = collector.get_pit_service_status()
+    assert pit_status is None
+
+
+def test_get_tire_and_brake_status_when_not_connected():
+    """Test getting tire/brake status when not connected."""
+    collector = IRacingDataCollector()
+    status = collector.get_tire_and_brake_status()
+    assert status is None
+
+
+def test_get_driver_roster_when_not_connected():
+    """Test getting driver roster when not connected."""
+    collector = IRacingDataCollector()
+    roster = collector.get_driver_roster()
+    assert roster is None
+
+
+def test_get_lap_time_details_when_not_connected():
+    """Test getting lap time details when not connected."""
+    collector = IRacingDataCollector()
+    details = collector.get_lap_time_details()
+    assert details is None
