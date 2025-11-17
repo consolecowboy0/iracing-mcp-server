@@ -9,13 +9,16 @@ import argparse
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Sequence
+from datetime import datetime, timezone
+from typing import Any, MutableSet, Sequence
+import contextlib
 
 import uvicorn
 from mcp.server import Server as MCPServer
 from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.stdio import stdio_server
+from mcp.server.session import ServerSession
 from mcp.types import Tool, TextContent
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -29,6 +32,140 @@ logger = logging.getLogger(__name__)
 
 # Global data collector instance
 data_collector = IRacingDataCollector()
+
+
+class IRacingEventBroadcaster:
+    """Monitors telemetry and emits ElevenLabs-friendly notifications."""
+
+    def __init__(self, collector: IRacingDataCollector, poll_interval: float = 0.5) -> None:
+        self._collector = collector
+        self._sessions: MutableSet[ServerSession] = set()
+        self._poll_interval = poll_interval
+        self._task: asyncio.Task | None = None
+        self._last_position: int | None = None
+        self._logger = logging.getLogger(__name__ + ".events")
+
+    def register_current_session(self, server: MCPServer) -> None:
+        """Capture the active session (if any) so we can push events later."""
+
+        try:
+            session = server.request_context.session
+        except LookupError:
+            return
+        self.register_session(session)
+
+    def register_session(self, session: ServerSession) -> None:
+        self._sessions.add(session)
+        self._ensure_task()
+
+    def _ensure_task(self) -> None:
+        if self._task and not self._task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # pragma: no cover - no running loop yet
+            return
+        self._task = loop.create_task(self._run(), name="iracing-pass-events")
+
+    async def stop(self) -> None:
+        """Cancel the background task (used by tests)."""
+
+        if not self._task:
+            return
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+        self._task = None
+
+    async def _run(self) -> None:
+        try:
+            while True:
+                if not self._sessions:
+                    self._last_position = None
+                    await asyncio.sleep(max(self._poll_interval, 1.0))
+                    continue
+
+                if not self._collector.is_connected():
+                    self._last_position = None
+                    await asyncio.sleep(max(self._poll_interval, 1.0))
+                    continue
+
+                position_info = self._collector.get_position_info()
+                if not position_info:
+                    await asyncio.sleep(max(self._poll_interval, 1.0))
+                    continue
+
+                position = position_info.get("position")
+                if isinstance(position, (int, float)):
+                    current_position = int(position)
+                else:
+                    await asyncio.sleep(self._poll_interval)
+                    continue
+
+                previous_position = self._last_position
+                if previous_position is not None and current_position < previous_position:
+                    await self._broadcast_pass_event(previous_position, current_position, position_info)
+
+                self._last_position = current_position
+                await asyncio.sleep(self._poll_interval)
+        except asyncio.CancelledError:  # pragma: no cover - shutdown path
+            self._logger.debug("Telemetry event broadcaster stopped")
+        finally:
+            self._task = None
+
+    async def _broadcast_pass_event(
+        self,
+        previous_position: int,
+        current_position: int,
+        position_info: dict[str, Any],
+    ) -> None:
+        event_payload: dict[str, Any] = {
+            "type": "player_pass",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message": f"Player advanced from P{previous_position} to P{current_position}",
+            "previous_position": previous_position,
+            "current_position": current_position,
+            "class_position": position_info.get("class_position"),
+            "lap_completed": position_info.get("lap_completed"),
+        }
+
+        passed_car = self._identify_passed_car()
+        if passed_car:
+            event_payload["passed_car"] = passed_car
+
+        stale_sessions: list[ServerSession] = []
+        for session in list(self._sessions):
+            try:
+                await session.send_log_message(level="info", data=event_payload, logger="iracing.pass_events")
+            except Exception as exc:  # pragma: no cover - network issues
+                self._logger.debug("Dropping stale session after send failure: %s", exc)
+                stale_sessions.append(session)
+
+        for session in stale_sessions:
+            with contextlib.suppress(KeyError):
+                self._sessions.discard(session)
+
+    def _identify_passed_car(self) -> dict[str, Any] | None:
+        try:
+            surroundings = self._collector.get_surroundings(count=1)
+        except Exception as exc:  # pragma: no cover - defensive
+            self._logger.debug("Unable to pull surroundings for event context: %s", exc)
+            return None
+        if not surroundings:
+            return None
+        behind = surroundings.get("cars_behind") or []
+        if not behind:
+            return None
+        passed = behind[0]
+        return {
+            "car_idx": passed.get("car_idx"),
+            "car_number": passed.get("car_number"),
+            "name": passed.get("name"),
+            "gap_meters": passed.get("gap_meters"),
+        }
+
+
+event_broadcaster = IRacingEventBroadcaster(data_collector)
 
 
 def ensure_connection() -> bool:
@@ -45,6 +182,7 @@ def create_mcp_server() -> MCPServer:
     @server.list_tools()
     async def list_tools() -> list[Tool]:
         """List available tools for iRacing data collection."""
+        event_broadcaster.register_current_session(server)
         return [
             Tool(
                 name="connect_iracing",
@@ -176,6 +314,7 @@ def create_mcp_server() -> MCPServer:
     @server.call_tool()
     async def call_tool(name: str, arguments: Any) -> Sequence[TextContent]:
         """Handle tool calls for iRacing data collection."""
+        event_broadcaster.register_current_session(server)
         try:
             if name == "connect_iracing":
                 success = data_collector.connect()
