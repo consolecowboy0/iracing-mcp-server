@@ -154,11 +154,6 @@ ElevenLabs treats these notifications as [client-to-server events](https://eleve
 so the agent can immediately narrate real-world race moments without waiting for
 another tool call.
 
-Need help wiring that payload into your ElevenLabs agent? See
-[docs/elevenlabs-client-events.md](docs/elevenlabs-client-events.md) for the exact
-JSON shape plus a step-by-step walkthrough of the Builder settings you must
-toggle on the ElevenLabs side.
-
 ### Headless ElevenLabs Client (SDK)
 
 If the ElevenLabs UI cannot launch local stdio commands, use the bundled SDK client:
