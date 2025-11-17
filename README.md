@@ -46,6 +46,7 @@ Spin up the server in one terminal and tunnel it in another so the ElevenLabs re
 - **Car Information**: Get car ID, class, and track status
 - **Position & Standings**: Track position, class position, lap times, and laps completed
 - **Situational Awareness**: List nearby cars ahead/behind with relative gaps and speeds
+- **Live Pass Events**: Automatically emits MCP logging notifications when the player gains a position so ElevenLabs can react in real time
 - **MCP Standard Compliant**: Compatible with ElevenLabs and other MCP clients
 - **SSE/HTTPS Support**: Works with both Server-Sent Events and HTTPS streaming
 
@@ -141,6 +142,17 @@ You have two options depending on your environment:
    - **Streamable HTTP**: `http://<host>:<port><http_path>` (default `/mcp`)
 
    Use `GET /health` to verify connectivity before pointing ElevenLabs at the server.
+
+### Live race events
+
+Once a client has listed tools or called any MCP tool, the server registers the
+session with an internal event broadcaster. When the player's race position
+improves, the broadcaster emits a `notifications/message` event with the logger
+name `iracing.pass_events` that contains structured JSON describing the pass
+(`type=player_pass`, previous/current position, and the car that was passed).
+ElevenLabs treats these notifications as [client-to-server events](https://elevenlabs.io/docs/agents-platform/customization/events/client-to-server-events),
+so the agent can immediately narrate real-world race moments without waiting for
+another tool call.
 
 ### Headless ElevenLabs Client (SDK)
 
